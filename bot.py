@@ -4,7 +4,7 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 # ==================================
-# صيّاد السيولة - النسخة التجريبية
+# صيّاد السيولة - تحليل ضغط الشراء والبيع
 # ==================================
 
 SYMBOLS = [
@@ -60,17 +60,22 @@ def analyze(symbol):
 
     volumes = quotes.get("volume", [])
     closes = quotes.get("close", [])
+    highs = quotes.get("high", [])
+    lows = quotes.get("low", [])
 
     today_volume = 0
     last_price = None
 
-    for stamp, volume, close in zip(timestamps, volumes, closes):
-        if volume is None:
+    buy_flow = 0
+    sell_flow = 0
+
+    for stamp, volume, close, high, low in zip(
+        timestamps, volumes, closes, highs, lows
+    ):
+        if volume is None or close is None:
             continue
 
-        candle_time = datetime.fromtimestamp(
-            stamp, NY
-        )
+        candle_time = datetime.fromtimestamp(stamp, NY)
 
         if candle_time.date() != today:
             continue
@@ -79,9 +84,26 @@ def analyze(symbol):
             continue
 
         today_volume += volume
+        last_price = close
 
-        if close is not None:
-            last_price = close
+        if volume <= 0:
+            continue
+
+        # تقدير ضغط الشراء والبيع من موقع الإغلاق
+        price_range = high - low if high is not None and low is not None else 0
+
+        if price_range > 0:
+            buy_ratio = (close - low) / price_range
+            buy_ratio = max(0, min(1, buy_ratio))
+        else:
+            buy_ratio = 0.5
+
+        sell_ratio = 1 - buy_ratio
+
+        traded_value = volume * close
+
+        buy_flow += traded_value * buy_ratio
+        sell_flow += traded_value * sell_ratio
 
     daily_quotes = daily_data["indicators"]["quote"][0]
     daily_volumes = daily_quotes.get("volume", [])
@@ -110,20 +132,32 @@ def analyze(symbol):
 
     relative_volume = today_volume / expected_volume
 
+    net_flow = buy_flow - sell_flow
+
+    total_flow = buy_flow + sell_flow
+
+    buy_percent = (
+        buy_flow / total_flow * 100
+        if total_flow > 0 else 0
+    )
+
     return {
         "symbol": symbol,
         "price": last_price,
         "volume": today_volume,
-        "average": average_volume,
-        "relative": relative_volume
+        "relative": relative_volume,
+        "buy_flow": buy_flow,
+        "sell_flow": sell_flow,
+        "net_flow": net_flow,
+        "buy_percent": buy_percent
     }
 
 
 def main():
-    print("=" * 40)
-    print("       صيّاد السيولة")
+    print("=" * 50)
+    print("          صيّاد السيولة")
     print("   مراقبة الأسهم الأمريكية")
-    print("=" * 40)
+    print("=" * 50)
 
     results = []
 
@@ -147,19 +181,24 @@ def main():
 
     if not results:
         print("لا توجد بيانات كافية حالياً.")
-        print("قد يكون السوق مغلقاً أو البيانات غير متاحة.")
         return
 
     for item in results[:10]:
         print(
-            f"{item['symbol']} | "
-            f"السعر: ${item['price']:.2f} | "
-            f"الحجم: {item['volume']:,.0f} | "
-            f"النشاط النسبي: {item['relative']:.2f}x"
+            f"\nالسهم: {item['symbol']}"
+            f"\nالسعر: ${item['price']:.2f}"
+            f"\nالحجم: {item['volume']:,.0f}"
+            f"\nالنشاط النسبي: {item['relative']:.2f}x"
+            f"\nالسيولة الشرائية التقديرية: ${item['buy_flow']:,.0f}"
+            f"\nالسيولة البيعية التقديرية: ${item['sell_flow']:,.0f}"
+            f"\nصافي السيولة التقديري: ${item['net_flow']:,.0f}"
+            f"\nنسبة ضغط الشراء: {item['buy_percent']:.1f}%"
         )
+        print("-" * 40)
 
     print("\nانتهى الفحص.")
     print("مصدر البيانات: Yahoo Finance")
+    print("تنبيه: السيولة المعروضة تقديرية وليست تدفقات فعلية.")
 
 
 if __name__ == "__main__":
