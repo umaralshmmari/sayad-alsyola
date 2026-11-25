@@ -1,5 +1,6 @@
 
 import requests
+import os
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
@@ -152,6 +153,30 @@ def analyze(symbol):
         "buy_percent": buy_percent
     }
 
+def send_telegram(message):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if not token or not chat_id:
+        print("بيانات تيليجرام غير موجودة.")
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    try:
+        response = requests.post(
+            url,
+            data={
+                "chat_id": chat_id,
+                "text": message
+            },
+            timeout=20
+        )
+        response.raise_for_status()
+        print("تم إرسال التنبيه إلى تيليجرام.")
+
+    except Exception as error:
+        print("تعذر إرسال رسالة تيليجرام:", error)
 
 def main():
     print("=" * 50)
@@ -200,6 +225,22 @@ def main():
     print("مصدر البيانات: Yahoo Finance")
     print("تنبيه: السيولة المعروضة تقديرية وليست تدفقات فعلية.")
 
+    message = "🎯 صيّاد السيولة\n\n"
+    message += "📊 أعلى الأسهم نشاطاً:\n\n"
+
+    for item in results[:10]:
+        message += (
+            f"السهم: {item['symbol']}\n"
+            f"السعر: ${item['price']:.2f}\n"
+            f"النشاط النسبي: {item['relative']:.2f}x\n"
+            f"صافي السيولة التقديري: ${item['net_flow']:,.0f}\n"
+            f"ضغط الشراء: {item['buy_percent']:.1f}%\n"
+            "--------------------\n"
+        )
+
+   
+    message += "\n⚠️ السيولة تقديرية وليست تدفقات فعلية."
+    send_telegram(message)
 
 if __name__ == "__main__":
     main()
